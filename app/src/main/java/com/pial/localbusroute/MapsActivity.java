@@ -47,6 +47,9 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
     private Map<String, Marker> socketMarker = new HashMap<String, Marker>();
     private Runnable requestProviderRunable;
     private Handler handleRequestProvider;
+    private int deviceId=3;
+    private int positionID=-1;
+
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -59,13 +62,7 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
         progress.show();
         apiInterface = RetrofitClient.getRetrofitClient().create(ApiInterface.class);
         handleRequestProvider = new Handler();
-        requestProviderRunable = new Runnable() {
-            @Override
-            public void run() {
-                getData();
-                handleRequestProvider.postDelayed(this, 30*1000);
-            }
-        };
+
 
         // Obtain the SupportMapFragment and get notified when the map is ready to be used.
         SupportMapFragment mapFragment = (SupportMapFragment) getSupportFragmentManager()
@@ -73,34 +70,34 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
         mapFragment.getMapAsync(this);
     }
 
-    private void getData() {
-        Call<ArrayList<BusRouteResponse>> arrayListCall = apiInterface.ARRAY_LIST_CALL();
-        arrayListCall.enqueue(new Callback<ArrayList<BusRouteResponse>>() {
+    private void getData(int positionID) {
+        Call<ArrayList<PositionResponse>> arrayListCall = apiInterface.getLatlngList(URLHelper.token,positionID);
+        arrayListCall.enqueue(new Callback<ArrayList<PositionResponse>>() {
             @Override
-            public void onResponse(Call<ArrayList<BusRouteResponse>> call, Response<ArrayList<BusRouteResponse>> response) {
+            public void onResponse(Call<ArrayList<PositionResponse>> call, Response<ArrayList<PositionResponse>> response) {
                 if (response.isSuccessful()) {
                     Log.e("response",new Gson().toJson(response.body()));
                     for (int i=0;i<response.body().size();i++) {
                         if (i==0) {
-                            LatLng sydney = new LatLng(Double.parseDouble(response.body().get(i).getLat()),Double.parseDouble(response.body().get(i).getLong()));
+                            LatLng sydney = new LatLng(response.body().get(i).getLatitude(),response.body().get(i).getLongitude());
                             mMap.moveCamera(CameraUpdateFactory.newLatLng(sydney));
                             mMap.animateCamera(CameraUpdateFactory.zoomTo(12));
                         }
-                        if (socketMarker.get(response.body().get(i).getBusStop()) == null) //create
+                        if (socketMarker.get(String.valueOf(response.body().get(i).getId())) == null) //create
                         {
                             MarkerOptions markerOptions = new MarkerOptions()
                                     .anchor(0.5f, 0.75f)
-                                    .position(new LatLng(Double.parseDouble(response.body().get(i).getLat()),Double.parseDouble(response.body().get(i).getLong())));
+                                    .position(new LatLng(response.body().get(i).getLatitude(),response.body().get(i).getLongitude()));
                             Marker mar1 = mMap.addMarker(markerOptions);
                             mar1.setVisible(true);
-                            socketMarker.put(response.body().get(i).getBusStop(), mar1);
+                            socketMarker.put(String.valueOf(response.body().get(i).getId()), mar1);
                             mar1.setTag("updated");
                         } else { //update
 
-                            Marker mar = socketMarker.get(response.body().get(i).getBusStop());
+                            Marker mar = socketMarker.get(String.valueOf(response.body().get(i).getId()));
                             mar.setVisible(true);
-                            mar.setRotation((float) Utilities.getBearing(mar.getPosition().latitude, mar.getPosition().longitude, Double.parseDouble(response.body().get(i).getLat()),Double.parseDouble(response.body().get(i).getLong())));
-                            Utilities.animateMarkerTo(mar, Double.parseDouble(response.body().get(i).getLat()), Double.parseDouble(response.body().get(i).getLong()));
+                            mar.setRotation((float) Utilities.getBearing(mar.getPosition().latitude, mar.getPosition().longitude, response.body().get(i).getLatitude(),response.body().get(i).getLongitude()));
+                            Utilities.animateMarkerTo(mar, response.body().get(i).getLatitude(), response.body().get(i).getLongitude());
                             mar.setTag("updated");
                         }
                     }
@@ -122,8 +119,8 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
             }
 
             @Override
-            public void onFailure(Call<ArrayList<BusRouteResponse>> call, Throwable t) {
-
+            public void onFailure(Call<ArrayList<PositionResponse>> call, Throwable t) {
+                Toast.makeText(MapsActivity.this, ""+t.getMessage(), Toast.LENGTH_SHORT).show();
             }
         });
     }
@@ -144,8 +141,30 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
             progress.dismiss();
         }
         mMap = googleMap;
-        handleRequestProvider.removeCallbacks(requestProviderRunable);
-        handleRequestProvider.post(requestProviderRunable);
+        Call<ArrayList<DeviceResponse>> call = apiInterface.getPositionList(URLHelper.token,deviceId);
+        call.enqueue(new Callback<ArrayList<DeviceResponse>>() {
+            @Override
+            public void onResponse(Call<ArrayList<DeviceResponse>> call, Response<ArrayList<DeviceResponse>> response) {
+                if(response.isSuccessful() && !response.body().isEmpty()) {
+                    positionID = response.body().get(0).getPositionId();
+                    requestProviderRunable = new Runnable() {
+                        @Override
+                        public void run() {
+                            getData(positionID);
+                            handleRequestProvider.postDelayed(this, 30*1000);
+                        }
+                    };
+                    handleRequestProvider.removeCallbacks(requestProviderRunable);
+                    handleRequestProvider.post(requestProviderRunable);
+                }
+            }
+
+            @Override
+            public void onFailure(Call<ArrayList<DeviceResponse>> call, Throwable t) {
+
+            }
+        });
+
         // Add a marker in Sydney and move the camera
         
 
